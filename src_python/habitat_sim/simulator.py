@@ -982,7 +982,7 @@ class Simulator(SimulatorBackend):
             assert self.renderer is not None
             # see if the sensor is attached to a scene graph, otherwise it is invalid,
             # and cannot make any observation
-            if sensor.object is None:
+            if sensor.node is None:
                 raise habitat_sim.errors.InvalidAttachedObject(
                     "Sensor observation requested but sensor is invalid.\
                     (has it been detached from a scene node?)"
@@ -1013,7 +1013,7 @@ class Simulator(SimulatorBackend):
 
             # see if the sensor is attached to a scene graph, otherwise it is invalid,
             # and cannot make any observation
-            if sensor.object is None:
+            if sensor.node is None:
                 raise habitat_sim.errors.InvalidAttachedObject(
                     "Sensor observation requested but sensor is invalid.\
                     (has it been detached from a scene node?)"
