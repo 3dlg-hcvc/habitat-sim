@@ -8,7 +8,7 @@
 import argparse
 import numpy as np
 import time
-import tqdm
+import os, tqdm
 
 import demo_runner as dr
 
@@ -16,6 +16,7 @@ def benchmark_scene(args, scene):
 
     default_settings = dr.default_sim_settings.copy()
     default_settings["scene_dataset_config_file"] = args.scene_dataset_config
+    default_settings["torch_gpu_id"] = 1
     default_settings["scene"] = scene
     default_settings["silent"] = True
     default_settings["seed"] = args.seed
@@ -178,14 +179,17 @@ if __name__ == "__main__":
 
     start = time.time()
     scene_perf = {}
+    split_name = os.path.basename(args.scene_split).split('.txt')[0]
     for scene in tqdm.tqdm(SCENES):
         scene_perf[scene] = benchmark_scene(args, scene)
+        with open(f'{split_name}_progress.txt', 'a') as fp:
+            fp.write(f"{scene} : {scene_perf[scene][args.num_procs[0]][0]['rgb']['fps']}\n")
     
     end = time.time()
 
     scene_fps = []
     for sc, data in scene_perf.items():
-        scene_fps.append(data[1][0]['rgb']['fps'])
+        scene_fps.append(data[args.num_procs[0]][0]['rgb']['fps'])
 
     def np_std_err(x):
         return np.std(x) / len(x)
