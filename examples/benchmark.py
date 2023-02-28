@@ -6,65 +6,17 @@
 
 
 import argparse
+import numpy as np
+import time
+import tqdm
 
 import demo_runner as dr
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser("Running benchmarks on simulator")
-    parser.add_argument("--scene", type=str, default=dr.default_sim_settings["scene"])
-    parser.add_argument(
-        "--max_frames",
-        type=int,
-        default=2000,
-        help="Max number of frames simulated."
-        "Default or larger value is suggested for accurate results.",
-    )
-    parser.add_argument(
-        "--resolution",
-        type=int,
-        nargs="+",
-        default=[128, 256, 512],
-        help="Resolution r for frame (r x r).",
-    )
-    parser.add_argument(
-        "--num_procs",
-        type=int,
-        nargs="+",
-        default=[1, 3, 5],
-        help="Number of concurrent processes.",
-    )
-    parser.add_argument(
-        "--benchmark_semantic_sensor",
-        action="store_true",
-        help="Whether to enable benchmarking of semantic sensor.",
-    )
-    parser.add_argument("--seed", type=int, default=1)
-    parser.add_argument(
-        "--enable_physics",
-        action="store_true",
-        help="Whether to enable physics (kinematic by default or dynamics if installed with bullet) during benchmark or not.",
-    )
-    parser.add_argument(
-        "--num_objects",
-        type=int,
-        default=10,
-        help="Number of objects to spawn if enable_physics is true.",
-    )
-    parser.add_argument(
-        "--test_object_index",
-        type=int,
-        default=0,
-        help="Index the objects to spawn if enable_physics is true. -1 indicates random.",
-    )
-    parser.add_argument(
-        "--disable_frustum_culling",
-        action="store_true",
-        help="Disable frustum culling (default is enabled)",
-    )
-    args = parser.parse_args()
+def benchmark_scene(args, scene):
 
     default_settings = dr.default_sim_settings.copy()
-    default_settings["scene"] = args.scene
+    default_settings["scene_dataset_config_file"] = args.scene_dataset_config
+    default_settings["scene"] = scene
     default_settings["silent"] = True
     default_settings["seed"] = args.seed
 
@@ -79,8 +31,8 @@ if __name__ == "__main__":
 
     benchmark_items = {
         "rgb": {},
-        "rgbd": {"depth_sensor": True},
-        "depth_only": {"color_sensor": False, "depth_sensor": True},
+        # "rgbd": {"depth_sensor": True},
+        # "depth_only": {"color_sensor": False, "depth_sensor": True},
     }
     if args.benchmark_semantic_sensor:
         benchmark_items["semantic_only"] = {
@@ -145,22 +97,98 @@ if __name__ == "__main__":
             " =============================================================================="
         )
 
-        # also print the average time per simulation step (including object perturbations)
-        if args.enable_physics:
-            print(
-                " ================ Performance (step time: milliseconds) NPROC={} ===================================".format(
-                    nproc
-                )
-            )
-            title = "Resolution "
-            for key in perf:
-                title += "\t%-10s" % key
-            print(title)
-            for idx in range(len(performance)):
-                row = "%d x %d" % (resolutions[idx], resolutions[idx])
-                for value in performance[idx].values():
-                    row += "\t%-8.2f" % (value.get("avg_sim_step_time") * 1000)
-                print(row)
-            print(
-                " =============================================================================="
-            )
+        # # also print the average time per simulation step (including object perturbations)
+        # if args.enable_physics:
+        #     print(
+        #         " ================ Performance (step time: milliseconds) NPROC={} ===================================".format(
+        #             nproc
+        #         )
+        #     )
+        #     title = "Resolution "
+        #     for key in perf:
+        #         title += "\t%-10s" % key
+        #     print(title)
+        #     for idx in range(len(performance)):
+        #         row = "%d x %d" % (resolutions[idx], resolutions[idx])
+        #         for value in performance[idx].values():
+        #             row += "\t%-8.2f" % (value.get("avg_sim_step_time") * 1000)
+        #         print(row)
+        #     print(
+        #         " =============================================================================="
+        #     )
+    return performance_all
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser("Running benchmarks on simulator")
+    parser.add_argument("--scene_dataset_config", type=str, required=True)
+    parser.add_argument("--scene_split", type=str, default=dr.default_sim_settings["scene"])
+    parser.add_argument(
+        "--max_frames",
+        type=int,
+        default=2000,
+        help="Max number of frames simulated."
+        "Default or larger value is suggested for accurate results.",
+    )
+    parser.add_argument(
+        "--resolution",
+        type=int,
+        nargs="+",
+        default=[128, 256, 512],
+        help="Resolution r for frame (r x r).",
+    )
+    parser.add_argument(
+        "--num_procs",
+        type=int,
+        nargs="+",
+        default=[1, 3, 5],
+        help="Number of concurrent processes.",
+    )
+    parser.add_argument(
+        "--benchmark_semantic_sensor",
+        action="store_true",
+        help="Whether to enable benchmarking of semantic sensor.",
+    )
+    parser.add_argument("--seed", type=int, default=1)
+    parser.add_argument(
+        "--enable_physics",
+        action="store_true",
+        help="Whether to enable physics (kinematic by default or dynamics if installed with bullet) during benchmark or not.",
+    )
+    parser.add_argument(
+        "--num_objects",
+        type=int,
+        default=10,
+        help="Number of objects to spawn if enable_physics is true.",
+    )
+    parser.add_argument(
+        "--test_object_index",
+        type=int,
+        default=0,
+        help="Index the objects to spawn if enable_physics is true. -1 indicates random.",
+    )
+    parser.add_argument(
+        "--disable_frustum_culling",
+        action="store_true",
+        help="Disable frustum culling (default is enabled)",
+    )
+    args = parser.parse_args()
+
+    with open(args.scene_split, 'r') as fp:
+        SCENES = [x.strip() for x in fp.readlines()]
+
+    start = time.time()
+    scene_perf = {}
+    for scene in tqdm.tqdm(SCENES):
+        scene_perf[scene] = benchmark_scene(args, scene)
+    
+    end = time.time()
+
+    scene_fps = []
+    for sc, data in scene_perf.items():
+        scene_fps.append(data[1][0]['rgb']['fps'])
+
+    def np_std_err(x):
+        return np.std(x) / len(x)
+
+    print(f'{np.mean(scene_fps)} +- {np_std_err(scene_fps)}')
+    print('TIME TAKEN: ', end - start)
