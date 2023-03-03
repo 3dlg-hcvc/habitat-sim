@@ -320,7 +320,7 @@ class DemoRunner:
                         )
             input("Press Enter to continue...")
 
-    def init_common(self):
+    def init_common(self, rank):
         self._cfg = make_cfg(self._sim_settings)
         scene_file = self._sim_settings["scene"]
 
@@ -335,6 +335,7 @@ class DemoRunner:
             print("Downloaded and extracted test scenes data.")
 
         # create a simulator (Simulator python class object, not the backend simulator)
+        self._cfg.sim_cfg.gpu_device_id = rank
         self._sim = habitat_sim.Simulator(self._cfg)
 
         random.seed(self._sim_settings["seed"])
@@ -351,8 +352,8 @@ class DemoRunner:
         # initialize the agent at a random start state
         return self.init_agent_state(self._sim_settings["default_agent"])
 
-    def _bench_target(self, _idx=0):
-        self.init_common()
+    def _bench_target(self, rank, _idx=0):
+        self.init_common(rank)
 
         best_perf = None
         for _ in range(3):
@@ -383,17 +384,19 @@ class DemoRunner:
         global _barrier
         _barrier = b
 
-    def benchmark(self, settings, group_id=ABTestGroup.CONTROL):
+    def benchmark(self, rank, settings, group_id=ABTestGroup.CONTROL):
         self.set_sim_settings(settings)
         nprocs = settings["num_processes"]
         # set it anyway, but only be used in AB_TEST mode
         self._group_id = group_id
 
+        # perfs = self._bench_target(rank)
         barrier = multiprocessing.Barrier(nprocs)
         with multiprocessing.Pool(
             nprocs, initializer=self._pool_init, initargs=(barrier,)
         ) as pool:
-            perfs = pool.map(self._bench_target, range(nprocs))
+            _args = [(rank, idx) for idx in range(nprocs)]
+            perfs = pool.starmap(self._bench_target, _args)
 
         res = {k: [] for k in perfs[0].keys()}
         for p in perfs:

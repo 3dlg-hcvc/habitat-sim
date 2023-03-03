@@ -12,11 +12,14 @@ import os, tqdm
 
 import demo_runner as dr
 
-def benchmark_scene(args, scene):
+import torch.multiprocessing as mp
+import os
+
+def benchmark_scene(rank, args, scene, result_queue):
 
     default_settings = dr.default_sim_settings.copy()
     default_settings["scene_dataset_config_file"] = args.scene_dataset_config
-    default_settings["torch_gpu_id"] = 1
+    default_settings["gpu_device_id"] = rank
     default_settings["scene"] = scene
     default_settings["silent"] = True
     default_settings["seed"] = args.seed
@@ -70,7 +73,7 @@ def benchmark_scene(args, scene):
                 print(" ---------------------- %s ------------------------ " % key)
                 settings = default_settings.copy()
                 settings.update(value)
-                perf[key] = demo_runner.benchmark(0, settings)
+                perf[key] = demo_runner.benchmark(rank, settings)
                 print(
                     " ====== FPS (%d x %d, %s): %0.1f ======"
                     % (settings["width"], settings["height"], key, perf[key].get("fps"))
@@ -81,8 +84,8 @@ def benchmark_scene(args, scene):
 
     for nproc, performance in performance_all.items():
         print(
-            " ================ Performance (FPS) NPROC={} ===================================".format(
-                nproc
+            " ================ Performance (FPS) NPROC={} rank={} ===================================".format(
+                nproc, rank
             )
         )
         title = "Resolution "
@@ -117,7 +120,8 @@ def benchmark_scene(args, scene):
         #     print(
         #         " =============================================================================="
         #     )
-    return performance_all
+    result_queue.put(performance_all)
+    # return performance_all
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser("Running benchmarks on simulator")
@@ -143,6 +147,12 @@ if __name__ == "__main__":
         nargs="+",
         default=[1, 3, 5],
         help="Number of concurrent processes.",
+    )
+    parser.add_argument(
+        "--n_gpu",
+        type=int,
+        default=8,
+        help="Number of gpus",
     )
     parser.add_argument(
         "--benchmark_semantic_sensor",
@@ -174,6 +184,9 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
+    simset = dr.default_sim_settings.copy()
+    # import pdb; pdb.set_trace()
+
     with open(args.scene_split, 'r') as fp:
         SCENES = [x.strip() for x in fp.readlines()]
 
@@ -182,22 +195,30 @@ if __name__ == "__main__":
     split_name = os.path.basename(args.scene_split).split('.txt')[0]
 
     done_scenes = []
-    if os.path.exists(f'{split_name}_{args.num_procs[0]}_progress.txt'):
-        with open(f'{split_name}_{args.num_procs[0]}_progress.txt', 'r') as fp:
+    if os.path.exists(f'{split_name}_{args.n_gpu}_{args.num_procs[0]}_progress.txt'):
+        with open(f'{split_name}_{args.n_gpu}_{args.num_procs[0]}_progress.txt', 'r') as fp:
             done_scenes = [x.strip().split(' : ')[0] for x in fp.readlines()]
 
-    for scene in tqdm.tqdm(SCENES):
-        if scene in done_scenes:
-            continue
-        scene_perf[scene] = benchmark_scene(args, scene)
-        with open(f'{split_name}_progress.txt', 'a') as fp:
-            fp.write(f"{scene} : {scene_perf[scene][args.num_procs[0]][0]['rgb']['fps']}\n")
+
+    for scene in tqdm.tqdm(SCENES[:10]):
+        result_queue = mp.Queue()
+        for rank in range(args.n_gpu):
+            mp.Process(target=benchmark_scene, args=(rank, args, scene, result_queue)).start()
+
+        scene_perf[scene] = 0.
+        for nproc in args.num_procs:
+            for _ in range(args.n_gpu):
+                proc_result = result_queue.get()
+                scene_perf[scene] += proc_result[nproc][0]['rgb']['fps']
+
+        with open(f'{split_name}_{args.n_gpu}_{args.num_procs[0]}_progress.txt', 'a') as fp:
+            fp.write(f"{scene} : {scene_perf[scene]}\n")
     
     end = time.time()
 
     scene_fps = []
-    for sc, data in scene_perf.items():
-        scene_fps.append(data[args.num_procs[0]][0]['rgb']['fps'])
+    for sc, fps in scene_perf.items():
+        scene_fps.append(fps)
 
     print(f'{np.mean(scene_fps)} +- {np.std(scene_fps)}')
     print('TIME TAKEN: ', end - start)
