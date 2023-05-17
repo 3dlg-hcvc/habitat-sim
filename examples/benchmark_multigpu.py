@@ -194,13 +194,7 @@ if __name__ == "__main__":
     scene_perf = {}
     split_name = os.path.basename(args.scene_split).split('.txt')[0]
 
-    done_scenes = []
-    if os.path.exists(f'{split_name}_{args.n_gpu}_{args.num_procs[0]}_progress.txt'):
-        with open(f'{split_name}_{args.n_gpu}_{args.num_procs[0]}_progress.txt', 'r') as fp:
-            done_scenes = [x.strip().split(' : ')[0] for x in fp.readlines()]
-
-
-    for scene in tqdm.tqdm(SCENES[:10]):
+    for scene in tqdm.tqdm(SCENES):
         result_queue = mp.Queue()
         for rank in range(args.n_gpu):
             mp.Process(target=benchmark_scene, args=(rank, args, scene, result_queue)).start()
